@@ -1,0 +1,6 @@
+{
+  "name": "StockSim - Financial Market Simulator",
+  "description": "Realistic stock-market simulation game initialized from real market snapshots with dynamic price engine and portfolio trading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
