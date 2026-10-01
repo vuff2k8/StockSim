@@ -3,8 +3,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
-import { getInitialMarketInstruments } from './src/data/initialSnapshots';
-import { SUPPORTED_MARKETS } from './src/data/markets';
 
 dotenv.config();
 
@@ -27,63 +25,13 @@ async function startServer() {
     });
   });
 
-  // Market universe endpoint
-  app.get('/api/market/universe', (req, res) => {
-    try {
-      const marketId = (req.query.market as string) || 'vietnam';
-      const instruments = getInitialMarketInstruments(marketId, 42);
-      res.json(instruments);
-    } catch (err: any) {
-      res.status(500).json({ error: 'Không thể tải dữ liệu thị trường', message: err.message });
-    }
-  });
-
-  // Quote endpoint
-  app.get('/api/market/quote', (req, res) => {
-    try {
-      const symbol = (req.query.symbol as string)?.toUpperCase();
-      if (!symbol) {
-        return res.status(400).json({ error: 'Thiếu mã chứng khoán' });
-      }
-
-      // Find symbol across all markets
-      for (const mId of Object.keys(SUPPORTED_MARKETS)) {
-        const instruments = getInitialMarketInstruments(mId, 42);
-        const found = instruments.find((i) => i.symbol === symbol);
-        if (found) {
-          const change = found.currentPrice - found.previousClose;
-          const changePercent = found.previousClose > 0 ? (change / found.previousClose) * 100 : 0;
-          return res.json({
-            symbol: found.symbol,
-            price: found.currentPrice,
-            change,
-            changePercent,
-            high: found.dayHigh,
-            low: found.dayLow,
-            open: found.openPrice,
-            previousClose: found.previousClose,
-            volume: found.volume,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      }
-
-      res.status(404).json({ error: `Không tìm thấy mã: ${symbol}` });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Lỗi máy chủ', message: err.message });
-    }
-  });
-
   // Market status endpoint
-  app.get('/api/market/status', (req, res) => {
-    const marketId = (req.query.market as string) || 'vietnam';
-    const config = SUPPORTED_MARKETS[marketId] || SUPPORTED_MARKETS.vietnam;
+  app.get('/api/market/status', (_req, res) => {
     res.json({
-      market: config.name,
+      status: 'ok',
+      service: 'StockSim Market Server',
       isOpen: true,
       currentSession: 'Phiên Khớp lệnh Liên tục',
-      timezone: config.tradingHours.timezone,
-      tradingHours: `${config.tradingHours.openHour}:00 - ${config.tradingHours.closeHour}:00`,
     });
   });
 

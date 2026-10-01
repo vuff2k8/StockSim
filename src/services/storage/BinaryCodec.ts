@@ -13,6 +13,7 @@ import { WorldState, WorldSnapshot } from '../../types/world';
 import { Instrument, Candle, StockStyle, AssetType } from '../../types/market';
 import { Portfolio, Position } from '../../types/portfolio';
 import { Order, Transaction, OrderSide, OrderType, OrderTier, OrderStatus, TimeInForce, PositionEffect } from '../../types/order';
+import { SUPPORTED_MARKETS } from '../../data/markets';
 
 const MAGIC_BYTES = new Uint8Array([0x53, 0x53, 0x49, 0x4d]); // 'SSIM'
 const FORMAT_VERSION = 1;
@@ -736,36 +737,14 @@ export class WorldBinaryCodec {
       },
     };
 
-    // Fallback marketConfig builder
-    const marketConfig: any = {
-      id: marketConfigId || 'vietnam',
-      name: snapshotMarket,
-      currency: snapshotCurrency,
-      country: snapshotMarket,
-      flag: '🇻🇳',
+    // Canonical marketConfig lookup
+    const baseConfig = SUPPORTED_MARKETS[marketConfigId] || SUPPORTED_MARKETS[snapshotMarket] || SUPPORTED_MARKETS.vietnam;
+    const marketConfig = {
+      ...baseConfig,
       defaultStartingCapital: startingCapital,
-      capitalPresets: [startingCapital],
-      lotSize: 100,
-      tradingHours: { openHour: 9, openMinute: 0, closeHour: 15, closeMinute: 0, timezone: 'Asia/Ho_Chi_Minh' },
-      defaultFeeRate: 0.0015,
-      indexSymbol,
-      indexName,
-      baseIndexValue: indexValue,
-      description: '',
-      rules: {
-        allowShort: marketConfigId === 'us',
-        maxLeverage: marketConfigId === 'us' ? 5 : 2,
-        lotSize: marketConfigId === 'us' ? 1 : 100,
-        settlementPeriod: 'T+2',
-        priceBandPercent: marketConfigId === 'vietnam' ? 0.07 : null,
-        tradingFeeRate: 0.0015,
-        exchangeFeeRate: 0.0003,
-        borrowFeeDailyRate: 0.00035,
-        maintenanceMarginRatio: 0.25,
-        liquidationFeeRate: 0.01,
-        allowedOrderTypes: ['MARKET', 'LIMIT', 'STOP_MARKET', 'STOP_LIMIT', 'TRAILING_STOP', 'TAKE_PROFIT', 'STOP_LOSS', 'BRACKET', 'OCO'],
-        minPriceIncrement: marketConfigId === 'us' ? 0.01 : 10,
-      },
+      indexSymbol: indexSymbol || baseConfig.indexSymbol,
+      indexName: indexName || baseConfig.indexName,
+      baseIndexValue: indexValue > 0 ? indexValue : baseConfig.baseIndexValue,
     };
 
     return {

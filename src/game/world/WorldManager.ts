@@ -168,87 +168,11 @@ export class WorldManager {
       if (orderEval.transactions.length > 0) {
         transactions = [...orderEval.transactions, ...transactions];
 
-        // Apply filled orders to portfolio positions
+        // Apply filled orders to portfolio positions using canonical helper
         for (const tx of orderEval.transactions) {
           const filledInst = marketResult.instruments[tx.symbol];
           if (!filledInst) continue;
-
-          const newPositions = { ...portfolio.positions };
-          const pos = newPositions[tx.symbol];
-          const isBuy = tx.side === 'BUY';
-          const val = tx.quantity * tx.price;
-
-          if (isBuy) {
-            portfolio = { ...portfolio, cash: portfolio.cash - (val + tx.fee) };
-            if (pos && pos.side === 'LONG') {
-              const totalQty = pos.quantity + tx.quantity;
-              const totalCost = pos.totalCost + val + tx.fee;
-              newPositions[tx.symbol] = {
-                ...pos,
-                quantity: totalQty,
-                averagePrice: (pos.averagePrice * pos.quantity + tx.price * tx.quantity) / totalQty,
-                currentPrice: tx.price,
-                totalCost,
-                marginUsed: pos.marginUsed + val / (pos.leverage || 1),
-              };
-            } else if (pos && pos.side === 'SHORT') {
-              // Buy to cover short
-              const pnl = pos.quantity * pos.averagePrice - val - tx.fee;
-              portfolio = {
-                ...portfolio,
-                cash: portfolio.cash + pos.marginUsed + pnl,
-                realizedPnL: portfolio.realizedPnL + pnl,
-              };
-              delete newPositions[tx.symbol];
-            } else {
-              newPositions[tx.symbol] = {
-                symbol: tx.symbol,
-                name: tx.instrumentName,
-                currency: tx.currency,
-                side: 'LONG',
-                quantity: tx.quantity,
-                averagePrice: tx.price,
-                currentPrice: tx.price,
-                marketValue: val,
-                totalCost: val + tx.fee,
-                unrealizedPnL: -tx.fee,
-                unrealizedPnLPercent: 0,
-                realizedPnL: 0,
-                leverage: tx.leverage || 1,
-                marginUsed: val / (tx.leverage || 1),
-              };
-            }
-          } else {
-            // SELL
-            portfolio = { ...portfolio, cash: portfolio.cash + (val - tx.fee) };
-            if (pos && pos.side === 'LONG') {
-              const pnl = val - tx.fee - pos.averagePrice * tx.quantity;
-              portfolio = {
-                ...portfolio,
-                realizedPnL: portfolio.realizedPnL + pnl,
-              };
-              delete newPositions[tx.symbol];
-            } else {
-              // Open Short
-              newPositions[tx.symbol] = {
-                symbol: tx.symbol,
-                name: tx.instrumentName,
-                currency: tx.currency,
-                side: 'SHORT',
-                quantity: tx.quantity,
-                averagePrice: tx.price,
-                currentPrice: tx.price,
-                marketValue: val,
-                totalCost: val / (tx.leverage || 1),
-                unrealizedPnL: -tx.fee,
-                unrealizedPnLPercent: 0,
-                realizedPnL: 0,
-                leverage: tx.leverage || 1,
-                marginUsed: val / (tx.leverage || 1),
-              };
-            }
-          }
-          portfolio = { ...portfolio, positions: newPositions };
+          portfolio = WorldManager.applyTransactionToPortfolio(portfolio, tx, filledInst);
         }
       }
 
@@ -313,6 +237,8 @@ export class WorldManager {
     let orderHistory = currentState.orderHistory || [];
     let transactions = currentState.transactions || [];
 
+    let currentPortfolio = currentState.portfolio;
+
     // Run batch simulation steps in memory
     const stepsToRun = Math.min(ticksSimulated, 25);
     for (let i = 0; i < stepsToRun; i++) {
@@ -336,7 +262,7 @@ export class WorldManager {
         const orderEval = ConditionalOrderEngine.evaluateOrders(
           openOrders,
           currentInstruments,
-          currentState.portfolio,
+          currentPortfolio,
           currentState.marketConfig.rules,
           tickTimestamp,
           i === stepsToRun - 1 ? isNewDay : false
@@ -347,6 +273,12 @@ export class WorldManager {
         }
         if (orderEval.transactions.length > 0) {
           transactions = [...orderEval.transactions, ...transactions];
+          for (const tx of orderEval.transactions) {
+            const inst = currentInstruments[tx.symbol];
+            if (inst) {
+              currentPortfolio = WorldManager.applyTransactionToPortfolio(currentPortfolio, tx, inst);
+            }
+          }
         }
         if (orderEval.events.length > 0) {
           currentEvents = [...orderEval.events, ...currentEvents];
@@ -355,7 +287,7 @@ export class WorldManager {
     }
 
     const nextPortfolio = PortfolioEngine.updatePortfolioWithPrices(
-      currentState.portfolio,
+      currentPortfolio,
       currentInstruments,
       currentState.marketConfig.rules,
       isNewDay
@@ -377,5 +309,135 @@ export class WorldManager {
 
     SaveManager.saveGame(updatedState);
     return updatedState;
+  }
+
+  /**
+   * Canonical transaction settlement: applies a trade execution to portfolio positions and cash
+   */
+  public static applyTransactionToPortfolio(
+    portfolio: import('../../types/portfolio').Portfolio,
+    tx: Transaction,
+    inst: Instrument
+  ): import('../../types/portfolio').Portfolio {
+    const newPositions = { ...portfolio.positions };
+    const pos = newPositions[tx.symbol];
+    const isBuy = tx.side === 'BUY';
+    const val = tx.quantity * tx.price;
+    let nextCash = portfolio.cash;
+    let nextRealizedPnL = portfolio.realizedPnL;
+
+    if (isBuy) {
+      if (pos && pos.side === 'SHORT') {
+        // Buy to cover short (partial or full)
+        const coveredQty = Math.min(pos.quantity, tx.quantity);
+        const coveredEntryCost = pos.averagePrice * coveredQty;
+        const coveredExitCost = tx.price * coveredQty;
+        const pnl = coveredEntryCost - coveredExitCost - tx.fee;
+        const freedMargin = (pos.marginUsed * coveredQty) / pos.quantity;
+
+        nextCash += freedMargin + pnl;
+        nextRealizedPnL += pnl;
+
+        if (pos.quantity <= tx.quantity) {
+          delete newPositions[tx.symbol];
+        } else {
+          newPositions[tx.symbol] = {
+            ...pos,
+            quantity: pos.quantity - coveredQty,
+            marginUsed: Math.max(0, pos.marginUsed - freedMargin),
+            totalCost: Math.max(0, pos.totalCost - freedMargin),
+            realizedPnL: pos.realizedPnL + pnl,
+          };
+        }
+      } else if (pos && pos.side === 'LONG') {
+        // Adding to existing long
+        const marginRequired = val / (pos.leverage || 1);
+        nextCash -= (marginRequired + tx.fee);
+        const totalQty = pos.quantity + tx.quantity;
+        const totalCost = pos.totalCost + val + tx.fee;
+        newPositions[tx.symbol] = {
+          ...pos,
+          quantity: totalQty,
+          averagePrice: (pos.averagePrice * pos.quantity + tx.price * tx.quantity) / totalQty,
+          currentPrice: tx.price,
+          totalCost,
+          marginUsed: pos.marginUsed + marginRequired,
+        };
+      } else {
+        // New Long
+        const leverage = tx.leverage || 1;
+        const marginRequired = val / leverage;
+        nextCash -= (marginRequired + tx.fee);
+        newPositions[tx.symbol] = {
+          symbol: tx.symbol,
+          name: tx.instrumentName,
+          currency: tx.currency,
+          side: 'LONG',
+          quantity: tx.quantity,
+          averagePrice: tx.price,
+          currentPrice: tx.price,
+          marketValue: val,
+          totalCost: val + tx.fee,
+          unrealizedPnL: -tx.fee,
+          unrealizedPnLPercent: 0,
+          realizedPnL: 0,
+          leverage,
+          marginUsed: marginRequired,
+        };
+      }
+    } else {
+      // SELL
+      if (pos && pos.side === 'LONG') {
+        // Sell long (partial or full)
+        const soldQty = Math.min(pos.quantity, tx.quantity);
+        const soldEntryCost = pos.averagePrice * soldQty;
+        const proceeds = tx.price * soldQty - tx.fee;
+        const pnl = proceeds - soldEntryCost;
+        const freedMargin = (pos.marginUsed * soldQty) / pos.quantity;
+
+        nextCash += freedMargin + pnl;
+        nextRealizedPnL += pnl;
+
+        if (pos.quantity <= tx.quantity) {
+          delete newPositions[tx.symbol];
+        } else {
+          newPositions[tx.symbol] = {
+            ...pos,
+            quantity: pos.quantity - soldQty,
+            totalCost: Math.max(0, pos.totalCost - soldEntryCost),
+            marginUsed: Math.max(0, pos.marginUsed - freedMargin),
+            realizedPnL: pos.realizedPnL + pnl,
+          };
+        }
+      } else {
+        // New Short
+        const leverage = tx.leverage || 1;
+        const marginRequired = val / leverage;
+        nextCash -= (marginRequired + tx.fee);
+        newPositions[tx.symbol] = {
+          symbol: tx.symbol,
+          name: tx.instrumentName,
+          currency: tx.currency,
+          side: 'SHORT',
+          quantity: tx.quantity,
+          averagePrice: tx.price,
+          currentPrice: tx.price,
+          marketValue: val,
+          totalCost: marginRequired,
+          unrealizedPnL: -tx.fee,
+          unrealizedPnLPercent: 0,
+          realizedPnL: 0,
+          leverage,
+          marginUsed: marginRequired,
+        };
+      }
+    }
+
+    return {
+      ...portfolio,
+      cash: nextCash,
+      realizedPnL: nextRealizedPnL,
+      positions: newPositions,
+    };
   }
 }

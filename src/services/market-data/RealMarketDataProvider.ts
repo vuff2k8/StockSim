@@ -87,9 +87,9 @@ export class RealMarketDataProvider implements MarketDataProvider {
     return [];
   }
 
-  async getMarketStatus(market: string): Promise<MarketStatus> {
+  async getMarketStatus(market: string, currentSimTimestamp?: number): Promise<MarketStatus> {
     const config = SUPPORTED_MARKETS[market] || SUPPORTED_MARKETS.vietnam;
-    const now = new Date();
+    const now = currentSimTimestamp !== undefined ? new Date(currentSimTimestamp) : new Date();
     
     // Check operating hours based on market config
     const currentHour = now.getHours();

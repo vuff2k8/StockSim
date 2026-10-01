@@ -23,7 +23,7 @@ export interface MarketDataProvider {
   /**
    * Retrieve trading session and operating status for a market
    */
-  getMarketStatus(market: string): Promise<MarketStatus>;
+  getMarketStatus(market: string, currentSimTimestamp?: number): Promise<MarketStatus>;
 
   /**
    * Load instruments for initial world creation

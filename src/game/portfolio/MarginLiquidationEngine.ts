@@ -94,7 +94,9 @@ export class MarginLiquidationEngine {
       };
 
       totalInvested += pos.totalCost;
-      portfolioValue += marketVal;
+      if (pos.side === 'LONG') {
+        portfolioValue += marketVal;
+      }
       totalUnrealizedPnL += unrealized;
       usedMargin += posMargin;
 
@@ -154,7 +156,7 @@ export class MarginLiquidationEngine {
       potentialLossEstimate,
     };
 
-    const totalAssets = portfolio.cash + portfolioValue;
+    const totalAssets = Math.max(0, portfolio.cash + portfolioValue - shortExposure);
     const totalReturn = totalAssets - portfolio.startingCapital;
     const totalReturnPercent = portfolio.startingCapital > 0 ? (totalReturn / portfolio.startingCapital) * 100 : 0;
 
@@ -247,7 +249,9 @@ export class MarginLiquidationEngine {
       // Close position
       if (pos.side === 'LONG') {
         const proceeds = orderValue - liquidationFee;
-        newCash += proceeds;
+        const loanPrincipal = Math.max(0, pos.totalCost - pos.marginUsed);
+        const netEquityProceeds = Math.max(0, proceeds - loanPrincipal);
+        newCash += netEquityProceeds;
         const lossOrGain = proceeds - pos.totalCost;
         realizedPnLDelta += lossOrGain;
       } else {

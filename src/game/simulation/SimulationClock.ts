@@ -7,12 +7,12 @@ export class SimulationClock {
   public static createInitialState(sourceIsoTimestamp: string): SimulationClockState {
     const date = new Date(sourceIsoTimestamp);
     // Align time to 09:15:00 if it was evening or weekend for continuous market trading feel
-    date.setHours(9, 15, 0, 0);
+    date.setUTCHours(9, 15, 0, 0);
 
     return {
       currentTimestamp: date.getTime(),
-      displayDate: date.toISOString().split('T')[0],
-      displayTime: date.toTimeString().split(' ')[0],
+      displayDate: date.toISOString().slice(0, 10),
+      displayTime: date.toISOString().slice(11, 19),
       speed: 1,
       isPaused: true,
       totalTicks: 0,
@@ -38,18 +38,18 @@ export class SimulationClock {
     const advanceMs = minutesAdvanced * 60 * 1000;
 
     const prevDate = new Date(state.currentTimestamp);
-    const prevDay = prevDate.getDate();
+    const prevDay = prevDate.getUTCDate();
 
     const nextTimestamp = state.currentTimestamp + advanceMs;
     const nextDate = new Date(nextTimestamp);
-    const isNewDay = nextDate.getDate() !== prevDay;
+    const isNewDay = nextDate.getUTCDate() !== prevDay;
 
     return {
       nextClock: {
         ...state,
         currentTimestamp: nextTimestamp,
-        displayDate: nextDate.toISOString().split('T')[0],
-        displayTime: nextDate.toTimeString().split(' ')[0],
+        displayDate: nextDate.toISOString().slice(0, 10),
+        displayTime: nextDate.toISOString().slice(11, 19),
         totalTicks: state.totalTicks + 1,
       },
       isNewDay,
@@ -69,11 +69,11 @@ export class SimulationClock {
     ticksSimulated: number;
   } {
     const prevDate = new Date(state.currentTimestamp);
-    const prevDay = prevDate.getDate();
+    const prevDay = prevDate.getUTCDate();
 
     const nextTimestamp = state.currentTimestamp + ms;
     const nextDate = new Date(nextTimestamp);
-    const isNewDay = nextDate.getDate() !== prevDay;
+    const isNewDay = nextDate.getUTCDate() !== prevDay;
 
     // Estimate equivalent ticks (assuming 3 min/tick)
     const ticksSimulated = Math.max(1, Math.min(60, Math.floor(ms / (3 * 60 * 1000))));
@@ -82,8 +82,8 @@ export class SimulationClock {
       nextClock: {
         ...state,
         currentTimestamp: nextTimestamp,
-        displayDate: nextDate.toISOString().split('T')[0],
-        displayTime: nextDate.toTimeString().split(' ')[0],
+        displayDate: nextDate.toISOString().slice(0, 10),
+        displayTime: nextDate.toISOString().slice(11, 19),
         totalTicks: state.totalTicks + ticksSimulated,
       },
       isNewDay,

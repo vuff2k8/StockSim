@@ -1,0 +1,6 @@
+{
+  "summary":  "Checkpoint 1: Core Architecture Reconciliation for StockSim Phase 1.75. Provides deep repository audit findings, Current vs Target dependency diagrams, authority conflict matrix, line-by-line critical bug census, safe migration sequence, change boundaries, and testing prerequisites before Checkpoint 2.",
+  "updatedAt":  "2026-10-01T09:26:06.137191207Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
