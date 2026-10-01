@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user UID matching auth.uid" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "createdAt": { "type": "string", "description": "ISO timestamp of account creation" },
+        "updatedAt": { "type": "string", "description": "ISO timestamp of last profile update" }
+      },
+      "required": ["id", "email"]
+    },
+    "SavedWorld": {
+      "title": "SavedWorld",
+      "description": "Compressed persistent simulation world state",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique world snapshot ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "name": { "type": "string", "description": "World or market name" },
+        "marketId": { "type": "string", "description": "Market identifier (e.g. vn, us, crypto)" },
+        "seed": { "type": "number", "description": "PRNG Seed for deterministic simulation" },
+        "currentTick": { "type": "number", "description": "Current simulation tick counter" },
+        "totalAssets": { "type": "number", "description": "Portfolio equity in world currency" },
+        "lastSaved": { "type": "string", "description": "ISO timestamp of last save" },
+        "binaryData": { "type": "string", "description": "Base64-encoded compressed binary world payload" }
+      },
+      "required": ["id", "userId", "name", "marketId", "seed", "binaryData"]
+    },
+    "TradeRecord": {
+      "title": "TradeRecord",
+      "description": "Historical executed transaction log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction ID" },
+        "userId": { "type": "string", "description": "User UID who made the trade" },
+        "worldId": { "type": "string", "description": "Associated world ID" },
+        "symbol": { "type": "string", "description": "Ticker symbol" },
+        "side": { "type": "string", "enum": ["BUY", "SELL"] },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" },
+        "totalValue": { "type": "number" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "worldId", "symbol", "side", "quantity", "price", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Individual user profiles"
+    },
+    "/users/{userId}/savedWorlds/{worldId}": {
+      "schema": { "$ref": "#/entities/SavedWorld" },
+      "description": "User's saved simulation game worlds"
+    },
+    "/users/{userId}/trades/{tradeId}": {
+      "schema": { "$ref": "#/entities/TradeRecord" },
+      "description": "User's executed trade history"
+    }
+  }
+}
