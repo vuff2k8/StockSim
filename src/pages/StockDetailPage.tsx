@@ -57,8 +57,19 @@ export const StockDetailPage: React.FC<StockDetailPageProps> = ({
   const isUp = change >= 0;
 
   const handleOpenOrder = (tier: OrderTier) => {
-    setSelectedTier(tier);
-    setOrderModalOpen(true);
+    if (orderModalOpen && selectedTier === tier) {
+      setOrderModalOpen(false);
+    } else {
+      setSelectedTier(tier);
+      setOrderModalOpen(true);
+      // Safe scroll to order panel using requestAnimationFrame (Requirement 7)
+      requestAnimationFrame(() => {
+        const panelEl = document.getElementById('stock-order-panel-section');
+        if (panelEl) {
+          panelEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
+    }
   };
 
   // Quick close partial position
@@ -157,28 +168,69 @@ export const StockDetailPage: React.FC<StockDetailPageProps> = ({
         <div className="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-neutral-800">
           <button
             onClick={() => handleOpenOrder('BASIC')}
-            className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 border border-neutral-700"
+            className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 border ${
+              orderModalOpen && selectedTier === 'BASIC'
+                ? 'bg-neutral-700 text-white border-white shadow-md'
+                : 'bg-neutral-800 hover:bg-neutral-700 text-white border-neutral-700'
+            }`}
           >
             <span>LỆNH CƠ BẢN</span>
-            <span className="text-[10px] text-neutral-400 font-normal">Buy / Sell Market</span>
+            <span className="text-[10px] text-neutral-400 font-normal">Cơ bản (Market)</span>
           </button>
 
           <button
             onClick={() => handleOpenOrder('ADVANCED')}
-            className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 text-emerald-400 rounded-xl text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 border border-neutral-700"
+            className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 border ${
+              orderModalOpen && selectedTier === 'ADVANCED'
+                ? 'bg-emerald-600/30 text-emerald-300 border-emerald-400 shadow-md'
+                : 'bg-neutral-800 hover:bg-neutral-700 text-emerald-400 border-neutral-700'
+            }`}
           >
             <span>LỆNH NÂNG CAO</span>
-            <span className="text-[10px] text-neutral-400 font-normal">Limit / Stop / TP / SL</span>
+            <span className="text-[10px] text-neutral-400 font-normal">Limit / Stop</span>
           </button>
 
           <button
             onClick={() => handleOpenOrder('PRO')}
-            className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 text-amber-400 rounded-xl text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 border border-neutral-700"
+            className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 border ${
+              orderModalOpen && selectedTier === 'PRO'
+                ? 'bg-amber-600/30 text-amber-300 border-amber-400 shadow-md'
+                : 'bg-neutral-800 hover:bg-neutral-700 text-amber-400 border-neutral-700'
+            }`}
           >
             <span>LỆNH PRO</span>
-            <span className="text-[10px] text-neutral-400 font-normal">Margin / Short / Bracket</span>
+            <span className="text-[10px] text-neutral-400 font-normal">Margin / Bracket</span>
           </button>
         </div>
+
+        {/* Embedded Responsive Trading Terminal Order Panel (Inline, no trapping, no nested scroll container) */}
+        {orderModalOpen && (
+          <div
+            id="stock-order-panel-section"
+            className="mt-4 pt-4 border-t border-neutral-800 overflow-visible h-auto min-h-max"
+          >
+            <TradingTerminalOrderPanel
+              instrument={instrument}
+              portfolio={portfolio}
+              marketConfig={marketConfig}
+              feeConfig={feeConfig}
+              activeTier={selectedTier}
+              onTierChange={(t) => {
+                setSelectedTier(t);
+                // Reset scroll safely using requestAnimationFrame (Requirement 7)
+                requestAnimationFrame(() => {
+                  const container = document.getElementById('app-scroll-container');
+                  if (container) {
+                    container.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                });
+              }}
+              onSubmitOrder={onSubmitOrder}
+              onClose={() => setOrderModalOpen(false)}
+              inline={true}
+            />
+          </div>
+        )}
       </div>
 
       {/* Grid: Interactive Price Chart + Simulated Market Depth Order Book */}
@@ -301,21 +353,6 @@ export const StockDetailPage: React.FC<StockDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Order Modal Drawer */}
-      {orderModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-3">
-          <TradingTerminalOrderPanel
-            instrument={instrument}
-            portfolio={portfolio}
-            marketConfig={marketConfig}
-            feeConfig={feeConfig}
-            activeTier={selectedTier}
-            onTierChange={(t) => setSelectedTier(t)}
-            onSubmitOrder={onSubmitOrder}
-            onClose={() => setOrderModalOpen(false)}
-          />
-        </div>
-      )}
     </div>
   );
 };

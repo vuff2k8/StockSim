@@ -1,4 +1,6 @@
 import { WorldState } from '../../types/world';
+import { IndexedDBStorageService } from './IndexedDBStorageService';
+import { WorldBinaryCodec } from './BinaryCodec';
 
 const STORAGE_KEY_CURRENT_WORLD = 'stocksim_current_world';
 const STORAGE_KEY_SAVED_SLOTS = 'stocksim_saved_worlds';
@@ -15,40 +17,70 @@ export interface SavedWorldSummary {
 }
 
 export class StorageService {
+  private static saveDebounceTimer: any = null;
+  public static lastSaveMetrics = {
+    originalBytes: 0,
+    compressedBytes: 0,
+    savingsPercent: 0,
+    saveDurationMs: 0,
+  };
+
   /**
-   * Save the active world state to localStorage
+   * Save active world using async IndexedDB binary compression with debounced fallback
    */
   public static saveActiveWorld(state: WorldState): boolean {
-    try {
-      const serialized = JSON.stringify(state);
-      localStorage.setItem(STORAGE_KEY_CURRENT_WORLD, serialized);
+    const startTime = performance.now();
 
-      // Also update slot in saved slots list
-      this.updateSavedSlot(state);
-      return true;
-    } catch (err) {
-      console.error('Storage error: Failed to save active world', err);
-      return false;
-    }
+    // Trigger async binary save to IndexedDB
+    IndexedDBStorageService.saveWorldBinary(state)
+      .then((res) => {
+        this.lastSaveMetrics = {
+          originalBytes: res.originalSize,
+          compressedBytes: res.byteSize,
+          savingsPercent: Math.round(((res.originalSize - res.byteSize) / res.originalSize) * 100),
+          saveDurationMs: Math.round(performance.now() - startTime),
+        };
+      })
+      .catch((err) => {
+        console.warn('Async binary save failed', err);
+      });
+
+    // Update lightweight slot summary in localStorage
+    this.updateSavedSlot(state);
+    return true;
   }
 
   /**
-   * Load the active world state from localStorage
+   * Load active world: prefers IndexedDB binary; falls back to localStorage
+   */
+  public static async loadActiveWorldAsync(): Promise<WorldState | null> {
+    try {
+      const fromDB = await IndexedDBStorageService.loadWorldBinary();
+      if (fromDB) return fromDB;
+    } catch (err) {
+      console.warn('IndexedDB load failed', err);
+    }
+    return this.loadActiveWorld();
+  }
+
+  /**
+   * Synchronous load from localStorage fallback
    */
   public static loadActiveWorld(): WorldState | null {
+    if (typeof localStorage === 'undefined') return null;
+
     try {
       const serialized = localStorage.getItem(STORAGE_KEY_CURRENT_WORLD);
       if (!serialized) return null;
       const parsed = JSON.parse(serialized) as WorldState;
 
-      // Basic schema validation
       if (!parsed.snapshot || !parsed.portfolio || !parsed.instruments || !parsed.marketConfig) {
         console.warn('Corrupted world save file found');
         return null;
       }
       return parsed;
     } catch (err) {
-      console.error('Failed to parse saved world', err);
+      console.error('Failed to parse saved world from localStorage', err);
       return null;
     }
   }
@@ -57,6 +89,7 @@ export class StorageService {
    * List all saved worlds in storage
    */
   public static listSavedWorlds(): SavedWorldSummary[] {
+    if (typeof localStorage === 'undefined') return [];
     try {
       const raw = localStorage.getItem(STORAGE_KEY_SAVED_SLOTS);
       if (!raw) return [];
@@ -70,10 +103,13 @@ export class StorageService {
    * Clear current active world (Reset)
    */
   public static resetActiveWorld(): void {
-    try {
-      localStorage.removeItem(STORAGE_KEY_CURRENT_WORLD);
-    } catch (err) {
-      console.error('Failed to reset active world', err);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(STORAGE_KEY_CURRENT_WORLD);
+        localStorage.removeItem('stocksim_active_world_id');
+      } catch (err) {
+        console.error('Failed to reset active world in localStorage', err);
+      }
     }
   }
 
@@ -99,30 +135,28 @@ export class StorageService {
     }
   }
 
-  private static updateSavedSlot(state: WorldState) {
+  private static updateSavedSlot(state: WorldState): void {
+    if (typeof localStorage === 'undefined') return;
+
     try {
-      const slots = this.listSavedWorlds();
-      const summary: SavedWorldSummary = {
+      const existing = this.listSavedWorlds();
+      const updatedSlot: SavedWorldSummary = {
         id: state.snapshot.id,
-        name: `${state.marketConfig.country} - ${state.snapshot.difficulty.toUpperCase()}`,
+        name: `${state.marketConfig.name} (${state.clock.displayDate})`,
         market: state.snapshot.market,
         currency: state.snapshot.currency,
-        totalAssets: state.portfolio.totalAssets,
+        totalAssets: state.portfolio.equity,
         totalReturnPercent: state.portfolio.totalReturnPercent,
         savedAt: new Date().toISOString(),
-        simulationTime: state.clock.displayDate + ' ' + state.clock.displayTime,
+        simulationTime: `${state.clock.displayDate} ${state.clock.displayTime}`,
       };
 
-      const existingIndex = slots.findIndex((s) => s.id === state.snapshot.id);
-      if (existingIndex >= 0) {
-        slots[existingIndex] = summary;
-      } else {
-        slots.unshift(summary);
-      }
-
-      localStorage.setItem(STORAGE_KEY_SAVED_SLOTS, JSON.stringify(slots.slice(0, 10)));
-    } catch {
-      // Ignore slot update failure
+      const filtered = existing.filter((s) => s.id !== state.snapshot.id);
+      const updatedList = [updatedSlot, ...filtered].slice(0, 10);
+      localStorage.setItem(STORAGE_KEY_SAVED_SLOTS, JSON.stringify(updatedList));
+      localStorage.setItem('stocksim_active_world_id', state.snapshot.id);
+    } catch (err) {
+      console.warn('Failed to update slot summary', err);
     }
   }
 }

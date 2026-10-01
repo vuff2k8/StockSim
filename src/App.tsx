@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { WorldState } from './types/world';
 import { Instrument } from './types/market';
 import { OrderSide, OrderTier, FeeConfig } from './types/order';
@@ -10,6 +10,9 @@ import { WorldManager } from './game/world/WorldManager';
 import { OrderEngine, SubmitOrderParams } from './game/orders/OrderEngine';
 import { SaveManager } from './game/world/SaveManager';
 import { simulationScheduler } from './game/simulation/SimulationScheduler';
+import { simulationStore } from './store/simulationStore';
+import { SUPPORTED_MARKETS } from './data/markets';
+import { MarginLiquidationEngine } from './game/portfolio/MarginLiquidationEngine';
 
 // Components
 import { Header } from './components/Header';
@@ -17,19 +20,27 @@ import { MarketStatusBanner } from './components/MarketStatusBanner';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { Sidebar } from './components/Sidebar';
 import { TradingTerminalOrderPanel } from './components/TradingTerminalOrderPanel';
-import { PerformanceDebugPanel } from './components/PerformanceDebugPanel';
 
-// Pages
+// Lazy Loaded Pages and Modals for Bundle Splitting
+const CreateWorldPage = React.lazy(() =>
+  import('./pages/CreateWorldPage').then((m) => ({ default: m.CreateWorldPage }))
+);
+const PerformanceDebugPanel = React.lazy(() =>
+  import('./components/PerformanceDebugPanel').then((m) => ({ default: m.PerformanceDebugPanel }))
+);
+const SettingsPage = React.lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+
+// Standard Pages
 import { DashboardPage } from './pages/DashboardPage';
 import { MarketsPage } from './pages/MarketsPage';
 import { StockDetailPage } from './pages/StockDetailPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { HistoryPage } from './pages/HistoryPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { CreateWorldPage } from './pages/CreateWorldPage';
 
 export default function App() {
-  const [worldState, setWorldState] = useState<WorldState | null>(null);
+  const [worldState, setWorldState] = useState<WorldState | null>(() => simulationStore.getState());
   const [isInitializing, setIsInitializing] = useState(true);
   const [showCreateWorldModal, setShowCreateWorldModal] = useState(false);
   const [activeTab, setActiveTab] = useState<NavTab>('home');
@@ -48,59 +59,53 @@ export default function App() {
     tier: 'BASIC',
   });
 
-  // State ref for simulation scheduler getter
   const worldStateRef = useRef<WorldState | null>(null);
   worldStateRef.current = worldState;
 
-  // 1. Initial World Load / Bootstrap
+  // 1. Initial World Load / Bootstrap from IndexedDB with sync fallback
   useEffect(() => {
     async function init() {
       try {
-        const saved = SaveManager.loadGame();
+        const saved = (await SaveManager.loadGameAsync()) || SaveManager.loadGame();
         let activeWorld: WorldState;
 
         if (saved) {
           activeWorld = saved;
-          // Ensure new Phase 1.5 fields exist
           if (!activeWorld.openOrders) activeWorld.openOrders = [];
           if (!activeWorld.orderHistory) activeWorld.orderHistory = [];
           if (!activeWorld.uiSettings) activeWorld.uiSettings = createDefaultUiSettings('trader');
           if (!activeWorld.marketConfig.rules) {
-            const { SUPPORTED_MARKETS } = await import('./data/markets');
             activeWorld.marketConfig.rules = SUPPORTED_MARKETS[activeWorld.marketConfig.id]?.rules || SUPPORTED_MARKETS.vietnam.rules;
           }
-          // Ensure portfolio has all Phase 1.5 margin metrics and riskMetrics
-          const { MarginLiquidationEngine } = await import('./game/portfolio/MarginLiquidationEngine');
           activeWorld.portfolio = MarginLiquidationEngine.calculatePortfolioMetrics(
             activeWorld.portfolio,
             activeWorld.instruments,
             activeWorld.marketConfig.rules
           );
         } else {
-          // Default Vietnam market world on first launch
           activeWorld = await WorldManager.createNewWorld({
             marketId: 'vietnam',
             difficulty: 'normal',
           });
         }
 
+        simulationStore.setState(activeWorld);
         setWorldState(activeWorld);
 
         // Initialize authoritative SimulationScheduler
         simulationScheduler.init(
-          () => worldStateRef.current,
+          () => simulationStore.getState() || worldStateRef.current,
           (updater) => {
-            setWorldState((prev) => {
-              if (!prev) return prev;
-              const next = updater(prev);
-              worldStateRef.current = next;
-              return next;
-            });
+            const current = simulationStore.getState() || worldStateRef.current;
+            if (!current) return;
+            const next = updater(current);
+            simulationStore.setState(next);
+            setWorldState(next);
+            worldStateRef.current = next;
           },
           activeWorld.snapshot.seed
         );
 
-        // Start scheduler if not paused
         if (!activeWorld.clock.isPaused && activeWorld.clock.speed > 0) {
           simulationScheduler.start();
         }
@@ -132,6 +137,7 @@ export default function App() {
         ...prev,
         clock: { ...prev.clock, isPaused: nextPaused },
       };
+      simulationStore.setState(updated);
       SaveManager.saveGame(updated);
       return updated;
     });
@@ -145,6 +151,7 @@ export default function App() {
         ...prev,
         clock: { ...prev.clock, speed, isPaused: speed === 0 },
       };
+      simulationStore.setState(updated);
       SaveManager.saveGame(updated);
       return updated;
     });
@@ -155,14 +162,13 @@ export default function App() {
     simulationScheduler.advanceTimeJump(jump);
   }, []);
 
-  // 4. Order Submission Handler (supports Basic, Advanced, Pro, TP/SL, Bracket, OCO, Short, Margin)
+  // 4. Submit Order Handler
   const handleSubmitOrder = useCallback(
-    (params: SubmitOrderParams): { success: boolean; errorMessage?: string } => {
-      if (!worldState) {
-        return { success: false, errorMessage: 'Thế giới chưa được khởi tạo.' };
-      }
+    (params: SubmitOrderParams) => {
+      if (!worldState) return { success: false, errorMessage: 'Thế giới chưa sẵn sàng.' };
 
-      const feeConfig: FeeConfig = {
+      const activeRules = worldState.marketConfig.rules || SUPPORTED_MARKETS[worldState.marketConfig.id]?.rules || SUPPORTED_MARKETS.vietnam.rules;
+      const activeFee: FeeConfig = {
         rate: worldState.settings.marketFeeRate,
         minFee: 0,
       };
@@ -170,19 +176,26 @@ export default function App() {
       const result = OrderEngine.submitOrder(
         params,
         worldState.portfolio,
-        feeConfig,
+        activeFee,
         worldState.marketConfig,
-        new Date().toISOString()
+        worldState.clock.displayDate + 'T' + worldState.clock.displayTime + '.000Z'
       );
 
       if (result.success) {
         let updatedPortfolio = result.updatedPortfolio || worldState.portfolio;
         let updatedTransactions = result.transaction
-          ? [result.transaction, ...worldState.transactions]
-          : worldState.transactions;
+          ? [result.transaction, ...(worldState.transactions || [])]
+          : worldState.transactions || [];
         let updatedOpenOrders = result.newOpenOrders
           ? [...result.newOpenOrders, ...(worldState.openOrders || [])]
           : worldState.openOrders || [];
+
+        // Run immediate portfolio risk update
+        updatedPortfolio = MarginLiquidationEngine.calculatePortfolioMetrics(
+          updatedPortfolio,
+          worldState.instruments,
+          activeRules
+        );
 
         const nextState: WorldState = {
           ...worldState,
@@ -192,6 +205,7 @@ export default function App() {
           version: worldState.version + 1,
         };
 
+        simulationStore.setState(nextState);
         setWorldState(nextState);
         SaveManager.saveGame(nextState);
         return { success: true };
@@ -228,6 +242,7 @@ export default function App() {
         version: prev.version + 1,
       };
 
+      simulationStore.setState(updated);
       SaveManager.saveGame(updated);
       return updated;
     });
@@ -245,6 +260,7 @@ export default function App() {
         ...prev,
         watchlist: nextWatchlist,
       };
+      simulationStore.setState(updated);
       SaveManager.saveGame(updated);
       return updated;
     });
@@ -265,105 +281,47 @@ export default function App() {
           widgets: defaultSettings.widgets,
         },
       };
+      simulationStore.setState(updated);
       SaveManager.saveGame(updated);
       return updated;
     });
   }, []);
 
-  // 8. Desktop Keyboard Shortcuts (B = Buy, S = Sell, Space = Pause/Resume, Esc = Cancel)
-  useEffect(() => {
-    if (!worldState?.uiSettings?.enableKeyboardShortcuts) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Do not trigger shortcuts when typing in inputs/textareas
-      const activeElement = document.activeElement;
-      if (
-        activeElement &&
-        (activeElement.tagName === 'INPUT' ||
-          activeElement.tagName === 'TEXTAREA' ||
-          activeElement.tagName === 'SELECT')
-      ) {
-        return;
-      }
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-        handleTogglePlay();
-      } else if (e.code === 'KeyB') {
-        e.preventDefault();
-        const inst =
-          (selectedStockSymbol && worldState.instruments[selectedStockSymbol]) ||
-          worldState.instruments[worldState.watchlist[0]] ||
-          Object.values(worldState.instruments)[0];
-        if (inst) {
-          setQuickOrderState({
-            isOpen: true,
-            instrument: inst,
-            side: 'BUY',
-            tier: 'BASIC',
-          });
-        }
-      } else if (e.code === 'KeyS') {
-        e.preventDefault();
-        const inst =
-          (selectedStockSymbol && worldState.instruments[selectedStockSymbol]) ||
-          worldState.instruments[worldState.watchlist[0]] ||
-          Object.values(worldState.instruments)[0];
-        if (inst) {
-          setQuickOrderState({
-            isOpen: true,
-            instrument: inst,
-            side: 'SELL',
-            tier: 'BASIC',
-          });
-        }
-      } else if (e.code === 'Escape') {
-        if (quickOrderState.isOpen) {
-          setQuickOrderState((prev) => ({ ...prev, isOpen: false }));
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    worldState?.uiSettings?.enableKeyboardShortcuts,
-    worldState?.instruments,
-    worldState?.watchlist,
-    selectedStockSymbol,
-    quickOrderState.isOpen,
-    handleTogglePlay,
-  ]);
-
-  // Handle World Reset
-  const handleResetWorld = useCallback(() => {
-    SaveManager.resetGame();
-    setSelectedStockSymbol(null);
-    setShowCreateWorldModal(true);
-  }, []);
-
-  // Handle New World Created
+  // 8. World Creation Handler
   const handleWorldCreated = useCallback((newWorld: WorldState) => {
+    simulationStore.setState(newWorld);
     setWorldState(newWorld);
-    simulationScheduler.init(
-      () => worldStateRef.current,
-      (updater) => {
-        setWorldState((prev) => {
-          if (!prev) return prev;
-          const next = updater(prev);
-          worldStateRef.current = next;
-          return next;
-        });
-      },
-      newWorld.snapshot.seed
-    );
     setShowCreateWorldModal(false);
     setSelectedStockSymbol(null);
     setActiveTab('home');
+
+    simulationScheduler.init(
+      () => simulationStore.getState(),
+      (updater) => {
+        const cur = simulationStore.getState();
+        if (!cur) return;
+        const next = updater(cur);
+        simulationStore.setState(next);
+        setWorldState(next);
+      },
+      newWorld.snapshot.seed
+    );
+
+    if (!newWorld.clock.isPaused && newWorld.clock.speed > 0) {
+      simulationScheduler.start();
+    }
+  }, []);
+
+  // 9. Reset World Handler
+  const handleResetWorld = useCallback(() => {
+    SaveManager.resetGame();
+    simulationScheduler.destroy();
+    setWorldState(null);
+    setShowCreateWorldModal(true);
   }, []);
 
   const selectedInstrument = useMemo(() => {
-    if (!worldState || !selectedStockSymbol) return null;
+    if (!selectedStockSymbol || !worldState) return null;
     return worldState.instruments[selectedStockSymbol] || null;
   }, [worldState, selectedStockSymbol]);
 
@@ -378,11 +336,13 @@ export default function App() {
 
   if (!worldState || showCreateWorldModal) {
     return (
-      <CreateWorldPage
-        onWorldCreated={handleWorldCreated}
-        onCancel={worldState ? () => setShowCreateWorldModal(false) : undefined}
-        hasExistingWorld={!!worldState}
-      />
+      <Suspense fallback={<div className="min-h-screen bg-neutral-950 flex items-center justify-center text-xs font-mono text-neutral-400">Đang mở trình tạo thế giới...</div>}>
+        <CreateWorldPage
+          onWorldCreated={handleWorldCreated}
+          onCancel={worldState ? () => setShowCreateWorldModal(false) : undefined}
+          hasExistingWorld={!!worldState}
+        />
+      </Suspense>
     );
   }
 
@@ -397,8 +357,12 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen text-neutral-100 flex flex-col font-sans transition-colors"
-      style={{ backgroundColor: themeTokens.background }}
+      id="app-scroll-container"
+      className="w-full h-[100dvh] min-h-0 overflow-y-auto overflow-x-hidden flex flex-col font-sans transition-colors"
+      style={{
+        WebkitOverflowScrolling: 'touch',
+        backgroundColor: themeTokens.background,
+      }}
     >
       {/* 1. Header with Clock and Speed controls */}
       <Header
@@ -434,7 +398,7 @@ export default function App() {
         />
 
         {/* Viewport Content */}
-        <main className="flex-1 p-3 md:p-6 overflow-x-hidden min-h-0">
+        <main className="flex-1 p-3 md:p-6 min-h-0 h-auto overflow-visible pb-24 md:pb-8">
           {selectedInstrument ? (
             <StockDetailPage
               instrument={selectedInstrument}
@@ -491,12 +455,17 @@ export default function App() {
               onSelectInstrument={(symbol) => setSelectedStockSymbol(symbol)}
             />
           ) : (
-            <SettingsPage
-              worldState={worldState}
-              onWorldUpdated={(updated) => setWorldState(updated)}
-              onOpenCreateWorld={() => setShowCreateWorldModal(true)}
-              onResetWorld={handleResetWorld}
-            />
+            <Suspense fallback={<div className="p-4 text-xs font-mono text-neutral-400">Đang tải Cài đặt...</div>}>
+              <SettingsPage
+                worldState={worldState}
+                onWorldUpdated={(updated) => {
+                  simulationStore.setState(updated);
+                  setWorldState(updated);
+                }}
+                onOpenCreateWorld={() => setShowCreateWorldModal(true)}
+                onResetWorld={handleResetWorld}
+              />
+            </Suspense>
           )}
         </main>
       </div>
@@ -514,35 +483,56 @@ export default function App() {
 
       {/* Quick Order Modal with 3-tier Trading Terminal Panel */}
       {quickOrderState.isOpen && quickOrderState.instrument && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-3">
-          <TradingTerminalOrderPanel
-            instrument={quickOrderState.instrument}
-            portfolio={worldState.portfolio}
-            marketConfig={worldState.marketConfig}
-            feeConfig={activeFeeConfig}
-            activeTier={quickOrderState.tier}
-            onTierChange={(t) => setQuickOrderState((prev) => ({ ...prev, tier: t }))}
-            onSubmitOrder={handleSubmitOrder}
-            onClose={() => setQuickOrderState((prev) => ({ ...prev, isOpen: false }))}
-          />
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-black/80 backdrop-blur-xs p-3 pb-24 md:pb-8 flex justify-center items-start"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setQuickOrderState((prev) => ({ ...prev, isOpen: false }));
+            }
+          }}
+        >
+          <div className="w-full max-w-md my-auto sm:my-8 h-auto min-h-max overflow-visible">
+            <TradingTerminalOrderPanel
+              instrument={quickOrderState.instrument}
+              portfolio={worldState.portfolio}
+              marketConfig={worldState.marketConfig}
+              feeConfig={activeFeeConfig}
+              activeTier={quickOrderState.tier}
+              onTierChange={(t) => {
+                setQuickOrderState((prev) => ({ ...prev, tier: t }));
+                requestAnimationFrame(() => {
+                  const container = document.getElementById('app-scroll-container');
+                  if (container) {
+                    container.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                });
+              }}
+              onSubmitOrder={handleSubmitOrder}
+              onClose={() => setQuickOrderState((prev) => ({ ...prev, isOpen: false }))}
+            />
+          </div>
         </div>
       )}
 
       {/* 5. Performance Debug Panel (Developer Mode) */}
       {worldState.uiSettings?.showPerformancePanel && (
-        <PerformanceDebugPanel
-          worldState={worldState}
-          onClose={() =>
-            setWorldState((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    uiSettings: { ...prev.uiSettings, showPerformancePanel: false },
-                  }
-                : prev
-            )
-          }
-        />
+        <Suspense fallback={null}>
+          <PerformanceDebugPanel
+            worldState={worldState}
+            onClose={() =>
+              setWorldState((prev) => {
+                if (!prev) return prev;
+                const next = {
+                  ...prev,
+                  uiSettings: { ...prev.uiSettings, showPerformancePanel: false },
+                };
+                simulationStore.setState(next);
+                return next;
+              })
+            }
+          />
+        </Suspense>
       )}
     </div>
   );

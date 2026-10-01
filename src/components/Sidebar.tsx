@@ -33,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isIndexUp = marketIndex.change >= 0;
 
   return (
-    <aside className="hidden md:flex flex-col w-64 shrink-0 bg-neutral-950 border-r border-neutral-800 min-h-[calc(100vh-56px)] p-4 justify-between">
+    <aside className="hidden md:flex flex-col w-64 shrink-0 bg-neutral-950 border-r border-neutral-800 min-h-0 h-auto p-4 justify-between">
       <div className="space-y-6">
         {/* Market Index Widget */}
         <div className="p-3.5 bg-neutral-900/90 border border-neutral-800 rounded-xl">

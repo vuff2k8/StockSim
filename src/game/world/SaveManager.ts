@@ -10,7 +10,14 @@ export class SaveManager {
   }
 
   /**
-   * Loads the current active world from storage
+   * Loads the current active world from storage (async with IndexedDB)
+   */
+  public static async loadGameAsync(): Promise<WorldState | null> {
+    return StorageService.loadActiveWorldAsync();
+  }
+
+  /**
+   * Loads the current active world from storage (synchronous fallback)
    */
   public static loadGame(): WorldState | null {
     return StorageService.loadActiveWorld();
@@ -42,5 +49,9 @@ export class SaveManager {
    */
   public static importSave(jsonString: string): WorldState {
     return StorageService.importWorldJson(jsonString);
+  }
+
+  public static getMetrics() {
+    return StorageService.lastSaveMetrics;
   }
 }

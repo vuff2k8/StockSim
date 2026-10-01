@@ -2,8 +2,8 @@ import { Instrument, MarketConfig } from '../../types/market';
 import { MarketIndexState, SimulationEvent } from '../../types/simulation';
 import { SeededRandom } from '../../utils/seedRandom';
 import { EventEngine } from '../simulation/EventEngine';
-import { PriceEngine } from '../simulation/PriceEngine';
 import { IndexEngine } from './IndexEngine';
+import { NumericMarketState } from '../numeric/NumericMarketState';
 
 export interface MarketEngineStepResult {
   instruments: Record<string, Instrument>;
@@ -14,10 +14,11 @@ export interface MarketEngineStepResult {
 }
 
 export class MarketEngine {
-  private sectorDrifts: Record<string, number> = {};
+  private numericState: NumericMarketState | null = null;
+  private lastInstrumentKeyCount: number = 0;
 
   /**
-   * Performs one simulation tick across market components
+   * Performs one simulation tick using dense numeric Structure-of-Arrays
    */
   public step(
     instruments: Record<string, Instrument>,
@@ -37,33 +38,21 @@ export class MarketEngine {
     const currentActive = newEvent ? [...updatedActive, newEvent] : updatedActive;
     const currentAllEvents = newEvent ? [newEvent, ...allEvents].slice(0, 50) : allEvents;
 
-    // 3. Compute macro market trend and sector drifts
-    // Macro drift swings gently between -0.005 and +0.005 with Gaussian noise
+    // 3. Compute macro market trend
     const macroTrend = rng.nextGaussian() * 0.002;
 
-    // Evolve sector drifts
-    const sectors = new Set<string>();
-    for (const inst of Object.values(instruments)) {
-      if (inst.sector) sectors.add(inst.sector);
+    // 4. Ensure NumericMarketState is initialized
+    const symCount = Object.keys(instruments).length;
+    if (!this.numericState || this.lastInstrumentKeyCount !== symCount) {
+      this.numericState = new NumericMarketState(instruments);
+      this.lastInstrumentKeyCount = symCount;
     }
 
-    for (const sector of sectors) {
-      const prevDrift = this.sectorDrifts[sector] || 0;
-      // Drift evolves with mean reversion toward 0
-      const nextDrift = prevDrift * 0.9 + rng.nextGaussian() * 0.003;
-      this.sectorDrifts[sector] = Math.max(-0.03, Math.min(0.03, nextDrift));
-    }
+    // Step prices using dense typed arrays
+    const tickMs = new Date(tickTimestamp).getTime();
+    this.numericState.stepPrices(macroTrend, currentActive, rng, tickMs, isNewDay);
 
-    // 4. Step instrument prices deterministically
-    const nextInstruments = PriceEngine.stepPrices({
-      instruments,
-      marketTrend: macroTrend,
-      sectorTrends: this.sectorDrifts,
-      activeEvents: currentActive,
-      rng,
-      tickTimestamp,
-      isNewDay,
-    });
+    const nextInstruments = this.numericState.toRecord();
 
     // 5. Update market index based on simulated instrument universe
     const nextMarketIndex = IndexEngine.calculateIndex(
@@ -73,12 +62,22 @@ export class MarketEngine {
       tickTimestamp
     );
 
+    // Extract sector drifts for telemetry
+    const sectorTrends: Record<string, number> = {};
+    for (let s = 0; s < this.numericState.sectorNames.length; s++) {
+      sectorTrends[this.numericState.sectorNames[s]] = this.numericState.sectorDrifts[s];
+    }
+
     return {
       instruments: nextInstruments,
       marketIndex: nextMarketIndex,
       events: currentAllEvents,
       activeEvents: currentActive,
-      sectorTrends: { ...this.sectorDrifts },
+      sectorTrends,
     };
+  }
+
+  public getNumericState(): NumericMarketState | null {
+    return this.numericState;
   }
 }

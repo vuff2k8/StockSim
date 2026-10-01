@@ -69,7 +69,7 @@ export const CreateWorldPage: React.FC<CreateWorldPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 flex items-center justify-center p-4">
+    <div className="min-h-full h-auto bg-neutral-950 text-neutral-100 flex items-center justify-center p-4">
       <div className="w-full max-w-3xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden my-6">
         {/* Banner */}
         <div className="bg-gradient-to-r from-neutral-900 via-neutral-800 to-neutral-900 p-6 md:p-8 border-b border-neutral-800">

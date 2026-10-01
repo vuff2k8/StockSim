@@ -13,6 +13,8 @@ import {
   X,
   Target,
   ArrowRight,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Instrument, MarketConfig } from '../types/market';
 import {
@@ -91,11 +93,26 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
   const maxMarketLeverage = marketConfig.rules.maxLeverage || 1;
   const allowShort = marketConfig.rules.allowShort;
 
+  // Compact secondary drawer state for Pro mode
+  const [showSecondaryDrawer, setShowSecondaryDrawer] = useState<boolean>(() => {
+    return leverage > 1 || enableTP || enableSL || orderType === 'BRACKET' || orderType === 'OCO' || orderType === 'TRAILING_STOP';
+  });
+
   const handleTierSwitch = (newTier: OrderTier) => {
     setTier(newTier);
     if (onTierChange) onTierChange(newTier);
     setFeedback(null);
     setConfirmingHighRisk(false);
+
+    // Reset scroll position safely using requestAnimationFrame (Requirement 7)
+    requestAnimationFrame(() => {
+      const scrollContainer = document.getElementById('app-scroll-container');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
 
     if (newTier === 'BASIC') {
       setOrderType('MARKET');
@@ -302,7 +319,7 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
   }, [preview.estimatedLiquidationPrice, instrument.currentPrice]);
 
   return (
-    <div className={`bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-2xl ${inline ? 'w-full' : 'max-w-md w-full'}`}>
+    <div className={`bg-neutral-900 border border-neutral-800 rounded-2xl overflow-visible h-auto min-h-max shadow-2xl ${inline ? 'w-full' : 'max-w-md w-full'}`}>
       {/* 1. Header with 3 Tiers (Basic / Advanced / Pro) and Dismiss Button */}
       <div className="bg-neutral-950 px-4 py-3 border-b border-neutral-800 flex items-center justify-between">
         <div>
@@ -336,6 +353,8 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                     ? 'bg-emerald-600 text-white shadow-xs font-bold'
                     : 'text-neutral-400 hover:text-white'
                 }`}
+                title={t === 'BASIC' ? 'Beginner Mode' : t === 'ADVANCED' ? 'Advanced Mode' : 'Pro Mode'}
+                data-tier={t}
               >
                 {t === 'BASIC' ? 'Cơ bản' : t === 'ADVANCED' ? 'Nâng cao' : 'Pro'}
               </button>
@@ -498,7 +517,7 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
 
         {/* TIER 3: PRO (Margin / Leverage / Short / Bracket / OCO / Risk) */}
         {tier === 'PRO' && (
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-visible h-auto">
             <div className="flex items-center justify-between text-[11px] text-amber-400 font-medium">
               <span>TERMINAL PRO ENGINE</span>
               <span className="font-mono text-neutral-400">
@@ -506,30 +525,30 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
               </span>
             </div>
 
-            {/* Action Buttons: Long, Sell, Short, Close */}
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 p-1 bg-neutral-950 rounded-xl border border-neutral-800 text-xs font-bold">
+            {/* Action Buttons: Long, Sell, Short, Close - 2x2 on mobile, 4-col on desktop */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 bg-neutral-950 rounded-xl border border-neutral-800 text-xs font-bold">
               <button
                 type="button"
                 onClick={() => handleSideChange('BUY', 'OPEN_LONG')}
-                className={`py-2 rounded-lg transition-all cursor-pointer ${
+                className={`py-2.5 px-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   side === 'BUY' && positionEffect === 'OPEN_LONG'
                     ? 'bg-emerald-600 text-white shadow-md'
                     : 'text-neutral-400 hover:text-white'
                 }`}
               >
-                MUA (LONG)
+                <span>MUA (LONG)</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleSideChange('SELL', 'CLOSE_LONG')}
-                className={`py-2 rounded-lg transition-all cursor-pointer ${
+                className={`py-2.5 px-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   side === 'SELL' && positionEffect === 'CLOSE_LONG'
                     ? 'bg-rose-600 text-white shadow-md'
                     : 'text-neutral-400 hover:text-white'
                 }`}
               >
-                BÁN (SELL)
+                <span>BÁN (SELL)</span>
               </button>
 
               {/* Short Selling (Conditional by market rules) */}
@@ -542,7 +561,7 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                     setPositionEffect('OPEN_SHORT');
                   }
                 }}
-                className={`py-2 rounded-lg transition-all ${
+                className={`py-2.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                   !allowShort
                     ? 'bg-neutral-900/40 text-neutral-600 cursor-not-allowed'
                     : side === 'SELL' && positionEffect === 'OPEN_SHORT'
@@ -551,7 +570,7 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                 }`}
                 title={allowShort ? 'Bán khống cổ phiếu' : 'Sàn không hỗ trợ bán khống'}
               >
-                SHORT {allowShort ? '' : '(N/A)'}
+                <span>SHORT {allowShort ? '' : '(N/A)'}</span>
               </button>
 
               {/* Close Position */}
@@ -565,7 +584,7 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                     setQuantity(holdingShares);
                   }
                 }}
-                className={`py-2 rounded-lg transition-all ${
+                className={`py-2.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                   !hasPosition
                     ? 'bg-neutral-900/40 text-neutral-600 cursor-not-allowed'
                     : positionEffect.startsWith('CLOSE')
@@ -573,29 +592,26 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                     : 'text-neutral-400 hover:text-white cursor-pointer'
                 }`}
               >
-                ĐÓNG
+                <span>ĐÓNG</span>
               </button>
             </div>
 
-            {/* Pro Order Types: Market, Limit, Stop Limit, Trailing, Bracket, OCO */}
+            {/* Primary Order Types (Market / Limit / Stop Limit) */}
             <div>
               <label className="text-[11px] font-semibold text-neutral-400 block mb-1.5 uppercase tracking-wider">
-                Loại lệnh Pro & Điều kiện
+                Loại lệnh cơ bản Pro
               </label>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 text-xs font-mono">
+              <div className="grid grid-cols-3 gap-1.5 text-xs font-mono">
                 {[
                   { id: 'MARKET', label: 'Market' },
                   { id: 'LIMIT', label: 'Limit' },
-                  { id: 'STOP_LIMIT', label: 'Stop Lmt' },
-                  { id: 'TRAILING_STOP', label: 'Trailing' },
-                  { id: 'BRACKET', label: 'Bracket' },
-                  { id: 'OCO', label: 'OCO' },
+                  { id: 'STOP_LIMIT', label: 'Stop Limit' },
                 ].map((ot) => (
                   <button
                     key={ot.id}
                     type="button"
                     onClick={() => setOrderType(ot.id as OrderType)}
-                    className={`py-1.5 px-1 rounded-lg border text-center transition-colors cursor-pointer text-[11px] ${
+                    className={`py-2 px-1 rounded-lg border text-center transition-colors cursor-pointer text-xs ${
                       orderType === ot.id
                         ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
                         : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-white'
@@ -605,6 +621,61 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Secondary Controls Drawer / Accordion (Requirement 10) */}
+            <div className="border border-neutral-800 rounded-xl overflow-visible bg-neutral-950/70">
+              <button
+                type="button"
+                onClick={() => setShowSecondaryDrawer((prev) => !prev)}
+                className="w-full px-3 py-2.5 flex items-center justify-between text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Sliders className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="font-semibold">Lệnh nâng cao & Đòn bẩy (TP/SL, Leverage)</span>
+                  {(leverage > 1 || enableTP || enableSL || ['TRAILING_STOP', 'BRACKET', 'OCO'].includes(orderType)) && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 font-mono font-bold">
+                      {leverage > 1 ? `${leverage}x` : ''} {['TRAILING_STOP', 'BRACKET', 'OCO'].includes(orderType) ? orderType : ''}
+                    </span>
+                  )}
+                </div>
+                {showSecondaryDrawer ? (
+                  <ChevronUp className="w-4 h-4 text-neutral-400 shrink-0" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-neutral-400 shrink-0" />
+                )}
+              </button>
+
+              {showSecondaryDrawer && (
+                <div className="p-3 pt-1 border-t border-neutral-800/80 space-y-3">
+                  {/* Secondary Advanced Order Types */}
+                  <div>
+                    <span className="text-[11px] text-neutral-400 block mb-1.5 font-medium">
+                      Lệnh điều kiện phức hợp:
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5 text-xs font-mono">
+                      {[
+                        { id: 'TRAILING_STOP', label: 'Trailing' },
+                        { id: 'BRACKET', label: 'Bracket' },
+                        { id: 'OCO', label: 'OCO' },
+                      ].map((ot) => (
+                        <button
+                          key={ot.id}
+                          type="button"
+                          onClick={() => setOrderType(ot.id as OrderType)}
+                          className={`py-1.5 px-1 rounded-lg border text-center transition-colors cursor-pointer text-[11px] ${
+                            orderType === ot.id
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
+                              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          {ot.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -725,87 +796,95 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
               </div>
 
               {/* TP Toggle & Field */}
-              <div className="flex items-center gap-2">
-                {orderType !== 'BRACKET' && orderType !== 'OCO' ? (
-                  <input
-                    type="checkbox"
-                    id="enableTP"
-                    checked={enableTP}
-                    onChange={(e) => setEnableTP(e.target.checked)}
-                    className="rounded bg-neutral-800 border-neutral-700 text-emerald-500 focus:ring-0 cursor-pointer"
-                  />
-                ) : (
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                )}
-                <label htmlFor="enableTP" className="text-xs text-neutral-300 cursor-pointer shrink-0">
-                  TP (Chốt lời):
-                </label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                <div className="flex items-center gap-2 shrink-0">
+                  {orderType !== 'BRACKET' && orderType !== 'OCO' ? (
+                    <input
+                      type="checkbox"
+                      id="enableTP"
+                      checked={enableTP}
+                      onChange={(e) => setEnableTP(e.target.checked)}
+                      className="rounded bg-neutral-800 border-neutral-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                    />
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                  )}
+                  <label htmlFor="enableTP" className="text-xs text-neutral-300 cursor-pointer shrink-0">
+                    TP (Chốt lời):
+                  </label>
+                </div>
                 {(enableTP || orderType === 'BRACKET' || orderType === 'OCO') && (
-                  <div className="flex-1 flex items-center gap-1.5">
+                  <div className="flex-1 flex items-center gap-1.5 min-w-0">
                     <input
                       type="number"
                       step={marketConfig.rules.minPriceIncrement}
                       value={tpPrice}
                       onChange={(e) => setTpPrice(parseFloat(e.target.value) || 0)}
-                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white"
+                      className="flex-1 min-w-0 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setTpPrice(Math.round(instrument.currentPrice * 1.05))}
-                      className="px-1.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
-                    >
-                      +5%
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTpPrice(Math.round(instrument.currentPrice * 1.1))}
-                      className="px-1.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
-                    >
-                      +10%
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setTpPrice(Math.round(instrument.currentPrice * 1.05))}
+                        className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
+                      >
+                        +5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTpPrice(Math.round(instrument.currentPrice * 1.1))}
+                        className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
+                      >
+                        +10%
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* SL Toggle & Field */}
-              <div className="flex items-center gap-2">
-                {orderType !== 'BRACKET' && orderType !== 'OCO' ? (
-                  <input
-                    type="checkbox"
-                    id="enableSL"
-                    checked={enableSL}
-                    onChange={(e) => setEnableSL(e.target.checked)}
-                    className="rounded bg-neutral-800 border-neutral-700 text-rose-500 focus:ring-0 cursor-pointer"
-                  />
-                ) : (
-                  <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span>
-                )}
-                <label htmlFor="enableSL" className="text-xs text-neutral-300 cursor-pointer shrink-0">
-                  SL (Cắt lỗ):
-                </label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                <div className="flex items-center gap-2 shrink-0">
+                  {orderType !== 'BRACKET' && orderType !== 'OCO' ? (
+                    <input
+                      type="checkbox"
+                      id="enableSL"
+                      checked={enableSL}
+                      onChange={(e) => setEnableSL(e.target.checked)}
+                      className="rounded bg-neutral-800 border-neutral-700 text-rose-500 focus:ring-0 cursor-pointer"
+                    />
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0"></span>
+                  )}
+                  <label htmlFor="enableSL" className="text-xs text-neutral-300 cursor-pointer shrink-0">
+                    SL (Cắt lỗ):
+                  </label>
+                </div>
                 {(enableSL || orderType === 'BRACKET' || orderType === 'OCO') && (
-                  <div className="flex-1 flex items-center gap-1.5">
+                  <div className="flex-1 flex items-center gap-1.5 min-w-0">
                     <input
                       type="number"
                       step={marketConfig.rules.minPriceIncrement}
                       value={slPrice}
                       onChange={(e) => setSlPrice(parseFloat(e.target.value) || 0)}
-                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white"
+                      className="flex-1 min-w-0 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setSlPrice(Math.round(instrument.currentPrice * 0.95))}
-                      className="px-1.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
-                    >
-                      -5%
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSlPrice(Math.round(instrument.currentPrice * 0.92))}
-                      className="px-1.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
-                    >
-                      -8%
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setSlPrice(Math.round(instrument.currentPrice * 0.95))}
+                        className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
+                      >
+                        -5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSlPrice(Math.round(instrument.currentPrice * 0.92))}
+                        className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] font-mono text-neutral-300 rounded"
+                      >
+                        -8%
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -823,7 +902,7 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                 <span className="font-mono text-amber-400 font-bold">{leverage}x</span>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="grid grid-cols-5 gap-1.5">
                 {[1, 2, 3, 5, 10]
                   .filter((lvl) => lvl <= maxMarketLeverage)
                   .map((lvl) => (
@@ -831,9 +910,9 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
                       key={lvl}
                       type="button"
                       onClick={() => setLeverage(lvl)}
-                      className={`flex-1 py-1 text-xs font-mono rounded font-semibold transition-colors cursor-pointer ${
+                      className={`py-1.5 text-xs font-mono rounded font-semibold transition-colors cursor-pointer text-center min-w-0 truncate ${
                         leverage === lvl
-                          ? 'bg-amber-500/20 border border-amber-500 text-amber-300'
+                          ? 'bg-amber-500/20 border border-amber-500 text-amber-300 font-bold'
                           : 'bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white'
                       }`}
                     >
@@ -969,16 +1048,16 @@ export const TradingTerminalOrderPanel: React.FC<TradingTerminalOrderPanelProps>
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                className="px-4 py-3 min-h-[44px] bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer shrink-0"
               >
-                Hủy
+                Hủy / Đóng
               </button>
             )}
 
             <button
               type="submit"
               disabled={!preview.isValid}
-              className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-lg ${
+              className={`flex-1 py-3 min-h-[44px] text-xs font-bold rounded-xl transition-all cursor-pointer shadow-lg ${
                 !preview.isValid
                   ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                   : confirmingHighRisk
