@@ -88,39 +88,8 @@ export class RealMarketDataProvider implements MarketDataProvider {
   }
 
   async getMarketStatus(market: string, currentSimTimestamp?: number): Promise<MarketStatus> {
-    const config = SUPPORTED_MARKETS[market] || SUPPORTED_MARKETS.vietnam;
-    const now = currentSimTimestamp !== undefined ? new Date(currentSimTimestamp) : new Date();
-    
-    // Check operating hours based on market config
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    const currentTotalMinutes = currentHour * 60 + currentMinute;
-    const openTotalMinutes = config.tradingHours.openHour * 60 + config.tradingHours.openMinute;
-    const closeTotalMinutes = config.tradingHours.closeHour * 60 + config.tradingHours.closeMinute;
-    
-    const dayOfWeek = now.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const isOpen = !isWeekend && currentTotalMinutes >= openTotalMinutes && currentTotalMinutes <= closeTotalMinutes;
-
-    let session = 'Đóng cửa';
-    if (isOpen) {
-      if (market === 'vietnam') {
-        if (currentTotalMinutes < 9 * 60 + 15) session = 'Khớp lệnh Định kỳ Mở cửa (ATO)';
-        else if (currentTotalMinutes >= 14 * 60 + 30 && currentTotalMinutes <= 14 * 60 + 45) session = 'Khớp lệnh Định kỳ Đóng cửa (ATC)';
-        else if (currentTotalMinutes > 11 * 60 + 30 && currentTotalMinutes < 13 * 60) session = 'Nghỉ giữa phiên';
-        else session = 'Khớp lệnh Liên tục';
-      } else {
-        session = 'Phiên Khớp lệnh Liên tục';
-      }
-    }
-
-    return {
-      market: config.name,
-      isOpen,
-      currentSession: session,
-      timezone: config.tradingHours.timezone,
-      tradingHours: `${config.tradingHours.openHour.toString().padStart(2, '0')}:${config.tradingHours.openMinute.toString().padStart(2, '0')} - ${config.tradingHours.closeHour.toString().padStart(2, '0')}:${config.tradingHours.closeMinute.toString().padStart(2, '0')}`,
-    };
+    const { MarketSessionEngine } = await import('../../game/session/MarketSessionEngine');
+    return MarketSessionEngine.getSessionStatus(market, currentSimTimestamp);
   }
 }
 

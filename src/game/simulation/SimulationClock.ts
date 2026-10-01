@@ -1,6 +1,19 @@
 import { SimulationClockState, SimulationSpeed } from '../../types/simulation';
+import { MarketConfig } from '../../types/market';
+import { MarketSessionState } from '../../types/session';
+import { MarketSessionEngine } from '../session/MarketSessionEngine';
 
 export class SimulationClock {
+  /**
+   * Authoritative lookup of MarketSessionState for this clock state
+   */
+  public static getSessionState(
+    state: SimulationClockState,
+    marketConfigOrId: MarketConfig | string
+  ): MarketSessionState {
+    return MarketSessionEngine.getSessionState(marketConfigOrId, state.currentTimestamp);
+  }
+
   /**
    * Generates initial clock state from an ISO starting timestamp
    */

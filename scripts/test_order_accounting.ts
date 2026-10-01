@@ -86,7 +86,7 @@ async function runCheckpoint1Tests() {
     initialPortfolio,
     { rate: 0.0015, minFee: 0 },
     SUPPORTED_MARKETS.vietnam,
-    '2026-10-01T09:15:00.000Z'
+    '2026-10-01T02:15:00.000Z' // 09:15:00 in Asia/Ho_Chi_Minh (Continuous trading session)
   );
 
   assert(orderRes.success === true, 'Order submission succeeded');

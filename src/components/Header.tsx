@@ -2,6 +2,7 @@ import React from 'react';
 import { Play, Pause, FastForward, Clock, PlusCircle } from 'lucide-react';
 import { SimulationClockState, SimulationSpeed } from '../types/simulation';
 import { MarketConfig } from '../types/market';
+import { MarketSessionEngine } from '../game/session/MarketSessionEngine';
 
 interface HeaderProps {
   clock: SimulationClockState;
@@ -24,6 +25,10 @@ export const Header: React.FC<HeaderProps> = ({
   onAdvanceTime,
   onOpenNewWorldModal,
 }) => {
+  const sessionState = React.useMemo(() => {
+    return MarketSessionEngine.getSessionState(marketConfig, clock.currentTimestamp);
+  }, [marketConfig, clock.currentTimestamp]);
+
   return (
     <header className="sticky top-0 z-30 bg-neutral-950/95 border-b border-neutral-800 backdrop-blur-md px-3 md:px-6 py-2.5">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -55,12 +60,28 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Simulation Clock & Step Controls */}
         <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 md:gap-4">
-          {/* Simulated Clock Display */}
+          {/* Simulated Clock Display with Authoritative Market Session */}
           <div className="flex items-center gap-2 px-3 py-1 bg-neutral-900 border border-neutral-800 rounded-lg font-mono text-xs">
             <Clock className="w-3.5 h-3.5 text-neutral-400" />
             <span className="text-neutral-300 font-medium">{clock.displayDate}</span>
             <span className="text-neutral-500">·</span>
             <span className="text-emerald-400 font-bold">{clock.displayTime}</span>
+            <span
+              className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold uppercase tracking-wider ${
+                sessionState.session === 'OPEN'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : sessionState.session === 'ATO' || sessionState.session === 'ATC'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                  : sessionState.session === 'LUNCH_BREAK'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  : sessionState.session === 'PRE_MARKET' || sessionState.session === 'AFTER_HOURS'
+                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                  : 'bg-neutral-800 text-neutral-400 border border-neutral-700'
+              }`}
+              title={sessionState.displayNameVi}
+            >
+              {sessionState.session === 'OPEN' ? 'Khớp lệnh' : sessionState.session}
+            </span>
           </div>
 
           {/* Play / Pause & Speed Selector */}

@@ -269,6 +269,23 @@ export class NumericMarketState {
   }
 
   /**
+   * Resets day boundary metrics (open, high, low, previousClose, volume) without changing current prices
+   */
+  public resetDayBaseline(): void {
+    for (let i = 0; i < this.count; i++) {
+      const price = this.currentPrices[i];
+      this.previousCloses[i] = price;
+      this.openPrices[i] = price;
+      this.dayHighs[i] = price;
+      this.dayLows[i] = price;
+      this.volumes[i] = 0;
+      this.dirtyFlags[i] = 1;
+      this.singleInstrumentCache[i] = null;
+    }
+    this.presentationCache = null;
+  }
+
+  /**
    * Presentation adapter: converts individual instrument to UI representation on demand
    */
   public getInstrument(symbol: string): Instrument | null {

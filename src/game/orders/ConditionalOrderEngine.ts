@@ -2,6 +2,7 @@ import { Instrument, MarketTradingRules } from '../../types/market';
 import { Order, OrderStatus, Transaction } from '../../types/order';
 import { Portfolio } from '../../types/portfolio';
 import { SimulationEvent } from '../../types/simulation';
+import { MarketSessionEngine } from '../session/MarketSessionEngine';
 
 export interface ConditionalOrderEvaluationResult {
   updatedOpenOrders: Order[];
@@ -61,6 +62,14 @@ export class ConditionalOrderEngine {
           cancellationReason: 'Hết hạn phiên giao dịch trong ngày (DAY order expired)',
         };
         cancelledOrders.push(expired);
+        continue;
+      }
+
+      // Check authoritative market session tradability
+      const sessionState = MarketSessionEngine.getSessionState(inst.market || 'vietnam', timestamp);
+      if (!sessionState.isTradable) {
+        // Market is closed or in non-tradable break: keep order pending without filling
+        updatedOpenOrders.push(order);
         continue;
       }
 

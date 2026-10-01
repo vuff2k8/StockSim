@@ -14,6 +14,7 @@ import {
 import { Portfolio, Position } from '../../types/portfolio';
 import { MarketDepthEngine } from '../market/MarketDepthEngine';
 import { MarginLiquidationEngine } from '../portfolio/MarginLiquidationEngine';
+import { MarketSessionEngine } from '../session/MarketSessionEngine';
 
 export interface SubmitOrderParams {
   instrument: Instrument;
@@ -50,7 +51,8 @@ export class OrderEngine {
     params: SubmitOrderParams,
     portfolio: Portfolio,
     feeConfig: FeeConfig,
-    marketConfig: MarketConfig
+    marketConfig: MarketConfig,
+    timestamp?: string | number
   ): OrderPreview {
     const {
       instrument,
@@ -100,6 +102,16 @@ export class OrderEngine {
     let isValid = true;
     let errorMessage: string | undefined;
     let warningMessage: string | undefined;
+
+    // 0. Session & Market Phase check
+    if (timestamp !== undefined) {
+      const sessionState = MarketSessionEngine.getSessionState(marketConfig, timestamp);
+      const sessionValidation = MarketSessionEngine.validateOrderForSession(orderType, sessionState);
+      if (!sessionValidation.allowed) {
+        isValid = false;
+        errorMessage = sessionValidation.errorMessage;
+      }
+    }
 
     // 1. Quantity checks
     const lotSize = marketConfig.rules.lotSize || 1;
@@ -236,7 +248,7 @@ export class OrderEngine {
     marketConfig: MarketConfig,
     timestamp: string
   ): SubmitOrderResult {
-    const preview = this.calculatePreview(params, portfolio, feeConfig, marketConfig);
+    const preview = this.calculatePreview(params, portfolio, feeConfig, marketConfig, timestamp);
     if (!preview.isValid) {
       return { success: false, errorMessage: preview.errorMessage || 'Lệnh không hợp lệ.' };
     }

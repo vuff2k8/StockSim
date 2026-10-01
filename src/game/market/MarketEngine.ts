@@ -4,6 +4,7 @@ import { SeededRandom } from '../../utils/seedRandom';
 import { EventEngine } from '../simulation/EventEngine';
 import { IndexEngine } from './IndexEngine';
 import { NumericMarketState } from '../numeric/NumericMarketState';
+import { MarketSessionEngine } from '../session/MarketSessionEngine';
 
 export interface MarketEngineStepResult {
   instruments: Record<string, Instrument>;
@@ -30,6 +31,9 @@ export class MarketEngine {
     tickTimestamp: string,
     isNewDay: boolean
   ): MarketEngineStepResult {
+    // 0. Check authoritative MarketSessionState
+    const sessionState = MarketSessionEngine.getSessionState(marketConfig, tickTimestamp);
+
     // 1. Update active simulation events
     const { updatedActive } = EventEngine.updateActiveEvents(activeEvents);
 
@@ -48,7 +52,22 @@ export class MarketEngine {
       this.lastInstrumentKeyCount = symCount;
     }
 
-    // Step prices using dense typed arrays
+    // If market is CLOSED or non-tradable break, do not drift intraday prices
+    if (!sessionState.isTradable) {
+      if (isNewDay) {
+        this.numericState.resetDayBaseline();
+      }
+      const nextInstruments = this.numericState.toRecord();
+      return {
+        instruments: nextInstruments,
+        marketIndex,
+        events: currentAllEvents,
+        activeEvents: currentActive,
+        sectorTrends: {},
+      };
+    }
+
+    // Step prices using dense typed arrays during tradable sessions
     const tickMs = new Date(tickTimestamp).getTime();
     this.numericState.stepPrices(macroTrend, currentActive, rng, tickMs, isNewDay);
 
